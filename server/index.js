@@ -50,11 +50,10 @@ io.on('connection', (socket) => {
     const room = { code, host: socket.id, mode, difficulty, phase: 'lobby', players: [player], winner: null };
     if (mode === 'single') {
       player.items.firewall = DIFFICULTIES[difficulty].firewalls;
-      const bot = makePlayer('bot', 'AI'); bot.secret = newPassword(); bot.ready = true;
+      const bot = makePlayer('bot', 'AI'); bot.secret = newPassword(); bot.ready = true; bot.tutorialDone = true;
       room.players.push(bot);
     }
     rooms.set(code, room); socket.data.roomCode = code;
-    if (mode === 'single') launch(room);
     publish(room); reply({ ok: true });
   });
   handle('joinRoom', (data, reply) => {
@@ -78,10 +77,19 @@ io.on('connection', (socket) => {
     if (!player.secret) return reply({ error: '비밀번호를 먼저 설정해 주세요.' });
     player.ready = !player.ready; publish(room); reply({ ok: true });
   });
+  handle('tutorialComplete', (_data, reply) => {
+    const room = rooms.get(socket.data.roomCode);
+    if (!room || room.phase !== 'lobby') return reply({ error: '게임 시작 전에 튜토리얼을 완료해 주세요.' });
+    const player = room.players.find((p) => p.id === socket.id);
+    if (!player.secret) return reply({ error: '비밀번호를 먼저 설정해 주세요.' });
+    player.tutorialDone = true;
+    if (room.mode === 'single') launch(room);
+    publish(room); reply({ ok: true });
+  });
   handle('startGame', (_data, reply) => {
     const room = rooms.get(socket.data.roomCode);
     if (!room || room.host !== socket.id || room.phase !== 'lobby') return reply({ error: '방장만 게임을 시작할 수 있습니다.' });
-    if (room.players.length !== 2 || !room.players.every((p) => p.ready && p.secret)) return reply({ error: '두 플레이어 모두 준비를 완료해 주세요.' });
+    if (room.players.length !== 2 || !room.players.every((p) => p.ready && p.secret && p.tutorialDone)) return reply({ error: '두 플레이어 모두 튜토리얼과 준비를 완료해 주세요.' });
     launch(room); publish(room); reply({ ok: true });
   });
   handle('action', (data, reply) => {

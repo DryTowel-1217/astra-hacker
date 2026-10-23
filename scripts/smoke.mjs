@@ -25,6 +25,10 @@ try {
   assert.equal('secret' in b.room.players[0], false);
   assert.equal(b.room.me.secret, '3456');
   assert.ok((await send(b, 'startGame')).error);
+  assert.ok((await send(a, 'startGame')).error);
+  assert.equal((await send(a, 'tutorialComplete')).ok, true);
+  assert.ok((await send(a, 'startGame')).error);
+  assert.equal((await send(b, 'tutorialComplete')).ok, true);
   assert.equal((await send(a, 'startGame')).ok, true);
   await until(() => b.room.phase === 'playing');
   let attacker = a.room.myTurn ? a : b, defender = attacker === a ? b : a;
@@ -33,7 +37,9 @@ try {
   await until(() => defender.room.mini?.id);
   assert.equal('sequence' in attacker.room.mini, false);
   const mini = defender.room.mini;
-  for (const value of mini.sequence) assert.equal((await act(defender, { type: 'defend', id: mini.id, value })).ok, true);
+  // Dispatch all clicks immediately, without waiting for preceding acknowledgments.
+  const replies = await Promise.all(mini.sequence.map((value) => act(defender, { type: 'defend', id: mini.id, value })));
+  assert.equal(replies.every((reply) => reply.ok), true);
   await until(() => defender.room.stage === 'result');
   assert.equal(defender.room.result.success, true);
   await until(() => defender.room.myTurn && defender.room.stage === 'attack');
@@ -43,15 +49,18 @@ try {
   const phishing = defender.room.mini;
   const value = phishing.options.findIndex((item) => JSON.stringify(item) === JSON.stringify(phishing.reference));
   await act(defender, { type: 'defend', id: phishing.id, value });
-  await until(() => defender.room.me.items.vpn === 1);
-  assert.deepEqual(defender.room.me.items, { vpn: 1, firewall: 1, ddos: 1 });
+  await until(() => Object.values(defender.room.me.items).reduce((a, b) => a + b) === 1);
+  const item = { VPN: 'vpn', DDoS: 'ddos', '방화벽': 'firewall' }[phishing.reference.item];
+  assert.equal(defender.room.me.items[item], 1);
   await until(() => defender.room.myTurn && defender.room.stage === 'attack');
-  await act(defender, { type: 'ddos' });
+  if (item === 'ddos') await act(defender, { type: 'ddos' });
   await act(defender, { type: 'attack', attack: 'brute', guess: defender === a ? '3456' : '0012' });
   await until(() => attacker.room.phase === 'finished');
   assert.equal(defender.room.winner, 'me');
   const closed = new Promise((resolve) => b.once('roomClosed', resolve)); a.emit('leaveRoom'); await closed;
   await send(c, 'createRoom', { mode: 'single', difficulty: 'easy', secret: '0000' });
+  assert.equal(c.room.phase, 'lobby');
+  await send(c, 'tutorialComplete');
   assert.equal(c.room.me.items.firewall, 2);
   assert.equal(c.room.myTurn, true);
   assert.ok((await act(c, { type: 'attack', attack: 'spoof' })).error);
@@ -59,5 +68,5 @@ try {
   await until(() => c.room.stage === 'defense');
   assert.equal(c.room.myTurn, false);
   assert.ok(c.room.mini.id);
-  console.log('PASS: 5자리 방 코드, 준비/방장 시작, 권한, 미니게임 입력/결과, 피싱 보상, 비밀정보 보호, 승패, 싱글 난이도/방어');
+  console.log('PASS: 방 접속, 양쪽 튜토리얼 시작 조건, 빠른 파일 연속 입력, 피싱 아이템 1개 보상, 승패, 싱글 튜토리얼/방어');
 } finally { clients.forEach((s) => s.disconnect()); }

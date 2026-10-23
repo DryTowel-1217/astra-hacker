@@ -16,3 +16,5 @@ export const validPassword = (value) => typeof value === 'string' && /^\d{4}$/.t
 export const interceptOptions = (level) => Math.max(2, 4 - level);
 export const ARROWS = ['ArrowUp', 'ArrowRight', 'ArrowDown', 'ArrowLeft'];
 export const ARROW_SYMBOL = { ArrowUp: '↑', ArrowRight: '→', ArrowDown: '↓', ArrowLeft: '←' };
+export const ITEM_NAMES = { ddos: 'DDoS', vpn: 'VPN', firewall: '방화벽', none: '꽝' };
+export const ITEM_ODDS = { box: [['ddos', 35], ['vpn', 35], ['firewall', 20], ['none', 10]], phishing: [['ddos', 45], ['vpn', 45], ['firewall', 10]] };
