@@ -1,11 +1,11 @@
 import { randomInt, randomBytes } from 'node:crypto';
-import { ATTACKS, DIFFICULTIES, validPassword, interceptOptions, ARROWS, ITEM_NAMES, ITEM_ODDS } from '../shared/rules.js';
+import { ATTACKS, DIFFICULTIES, validPassword, interceptOptions, ARROWS, ITEM_NAMES, ITEM_ODDS, SINGLE_ITEM_ODDS } from '../shared/rules.js';
 
 export const pick = (list) => list[randomInt(list.length)];
 export const newPassword = () => String(randomInt(10000)).padStart(4, '0');
 export const newIp = () => String(randomInt(100, 1000));
-export function rollItem(source, roll = randomInt(100)) {
-  for (const [item, odds] of ITEM_ODDS[source]) { if (roll < odds) return item; roll -= odds; }
+export function rollItem(source, roll = randomInt(100), mode = 'multi') {
+  for (const [item, odds] of mode === 'single' ? SINGLE_ITEM_ODDS : ITEM_ODDS[source]) { if (roll < odds) return item; roll -= odds; }
   throw new Error('Invalid reward roll');
 }
 function shuffle(items) {
@@ -31,18 +31,15 @@ export function availableAttacks(room, player) {
 }
 function useVpn(room, player) {
   const peer = room.players.find((p) => p !== player);
-  if (player.items.vpn > 0 && peer.spoofBlockedIp === player.ip) {
-    player.items.vpn--;
-    const previous = player.ip;
-    do { player.ip = newIp(); } while (player.ip === previous);
-    log(player, `VPN 자동 사용 · 내 IP가 ${player.ip}로 변경됐습니다.`);
-    log(peer, '상대가 VPN을 사용했습니다. 스푸핑을 다시 사용할 수 있습니다.');
-  }
+  player.items.vpn--;
+  const previous = player.ip;
+  do { player.ip = newIp(); } while (player.ip === previous || player.ip === peer.ip);
+  log(player, `VPN 사용 · 내 IP가 ${player.ip}로 변경됐습니다.`);
+  log(peer, '상대가 VPN으로 IP를 변경했습니다.');
 }
 function grantItem(room, player, item, source) {
   if (item !== 'none') player.items[item]++;
   log(player, `${source} · ${ITEM_NAMES[item]}${item === 'none' ? '' : ' 1개 획득'}`);
-  useVpn(room, player);
 }
 function endGame(room, winner, now) { room.phase = 'finished'; room.winner = winner; room.endedAt = now; }
 export function startGame(room, now = Date.now()) {
@@ -77,7 +74,7 @@ function finishDefense(room, success, now) {
   let saved = false;
   if (success) {
     defender.clears++;
-    if (pending.attack === 'spoof') { attacker.spoofBlockedIp = defender.ip; useVpn(room, defender); }
+    if (pending.attack === 'spoof') attacker.spoofBlockedIp = defender.ip;
     if (pending.attack === 'phishing') grantItem(room, defender, pending.reward, '피싱 방어 보상');
   } else if (defender.items.firewall > 0) {
     defender.items.firewall--; saved = true;
@@ -86,7 +83,7 @@ function finishDefense(room, success, now) {
   const challenge = room.mode === 'single' && room.difficulty === 'challenge';
   if (!success && !saved) {
     if (challenge) defender.lives--;
-    else if (room.mode === 'multi') hint(room, attacker, '상대 방어 실패');
+    else hint(room, attacker, '상대 방어 실패');
   }
   if (room.mode === 'single' && !challenge && defender.id !== 'bot' && defender.defenses % DIFFICULTIES[room.difficulty].every === 0) hint(room, defender, `방어 ${defender.defenses}회 달성`);
   const title = success ? '방어 성공' : saved ? '방화벽으로 보호됨' : '방어 실패';
@@ -95,6 +92,7 @@ function finishDefense(room, success, now) {
   room.result = { kind: 'defense', attack: pending.attack, defender: defender.id, success, saved, title, ...(success && pending.attack === 'phishing' ? { reward: pending.reward } : {}) };
   room.stage = 'result'; room.nextAt = now + 1900;
   if (challenge && defender.lives <= 0) endGame(room, null, now);
+  if (room.mode === 'single' && !challenge && defender.id !== 'bot' && attacker.hintCount >= 4) endGame(room, attacker.id, now);
 }
 function makePending(room, attack, route, now) {
   const defender = room.players[1 - room.turn];
@@ -111,7 +109,7 @@ function makePending(room, attack, route, now) {
   if (attack === 'ransom') { pending.sequence = Array.from({ length: 3 + level }, (_, i) => String.fromCharCode(65 + i)); pending.options = shuffle(pending.sequence); }
   if (attack === 'intercept') { pending.options = Array.from({ length: interceptOptions(level) }, (_, i) => i); pending.answer = route; }
   if (attack === 'phishing') {
-    pending.reward = rollItem('phishing');
+    pending.reward = rollItem('phishing', randomInt(100), room.mode);
     pending.reference = { title: '아이템 획득', item: ITEM_NAMES[pending.reward], stars: pick([2, 3, 4]), seal: '✦' };
     pending.answer = randomInt(2 + level);
     pending.options = Array.from({ length: 2 + level }, (_, i) => i === pending.answer ? { ...pending.reference } : ({ ...pending.reference, ...pick([{ title: '아이템 획득!' }, { item: `${pending.reference.item} +` }, { stars: pending.reference.stars + 1 }, { seal: '✧' }]) }));
@@ -124,7 +122,14 @@ export function act(room, player, input, now = Date.now()) {
   const { type } = data;
   if (room.phase !== 'playing') return { error: '진행 중인 게임이 아닙니다.' };
   const mine = room.players.indexOf(player);
+  if (type === 'vpn') {
+    if (room.mode === 'single') return { error: '싱글 모드에서는 VPN을 사용하지 않습니다.' };
+    if (player.items.vpn < 1) return { error: 'VPN 아이템이 없습니다.' };
+    useVpn(room, player);
+    return { ok: true };
+  }
   if (type === 'ddos') {
+    if (room.mode === 'single') return { error: '싱글 모드에서는 DDoS를 사용하지 않습니다.' };
     if (player.items.ddos < 1) return { error: 'DDoS 아이템이 없습니다.' };
     const target = room.mode === 'single' ? player : room.players[1 - mine];
     if (target.incomingBoost > 0) return { error: '이미 다음 공격에 DDoS가 적용되어 있습니다.' };
@@ -154,7 +159,7 @@ export function act(room, player, input, now = Date.now()) {
   if (type !== 'attack' || room.stage !== 'attack' || mine !== room.turn) return { error: '지금은 내 공격 시간이 아닙니다.' };
   if (now >= room.attackDeadline) { autoAttack(room, now); return { ok: true }; }
   if (data.attack === 'box') {
-    const item = rollItem('box');
+    const item = rollItem('box', randomInt(100), room.mode);
     player.attackCount++;
     grantItem(room, player, item, '별빛 보급 상자');
     room.result = { kind: 'box', actor: player.id, item, title: item === 'none' ? '아쉽지만 꽝!' : `${ITEM_NAMES[item]} 1개 획득` };

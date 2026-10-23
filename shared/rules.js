@@ -18,3 +18,4 @@ export const ARROWS = ['ArrowUp', 'ArrowRight', 'ArrowDown', 'ArrowLeft'];
 export const ARROW_SYMBOL = { ArrowUp: '↑', ArrowRight: '→', ArrowDown: '↓', ArrowLeft: '←' };
 export const ITEM_NAMES = { ddos: 'DDoS', vpn: 'VPN', firewall: '방화벽', none: '꽝' };
 export const ITEM_ODDS = { box: [['ddos', 35], ['vpn', 35], ['firewall', 20], ['none', 10]], phishing: [['ddos', 45], ['vpn', 45], ['firewall', 10]] };
+export const SINGLE_ITEM_ODDS = [['none', 80], ['firewall', 20]];

@@ -24,5 +24,10 @@ try {
     const result = renderToStaticMarkup(React.createElement(ResultScreen, { room: { ...view(room, a, 1300), winner }, home: () => {} }));
     assert.ok(result.includes(winner === 'me' ? 'VICTORY' : 'DEFEAT'));
   }
+  room.mode = 'single'; room.stage = 'attack'; room.pending = null; room.turn = 0;
+  const single = renderToStaticMarkup(React.createElement(GameBoard, { room: view(room, a, 1300), send: () => {}, home: () => {} }));
+  assert.equal(single.includes('VPN'), false);
+  assert.equal(single.includes('DDoS'), false);
+  assert.ok(single.includes('4자리 모두 노출되면 패배'));
   console.log('PASS: 공격 화면, 노출도, 타이머, 상자, 튜토리얼, 스푸핑 IP 숨김, 승리/패배 화면 렌더링');
 } finally { await vite.close(); }

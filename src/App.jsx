@@ -59,6 +59,6 @@ export default function App() {
     </section>{room?.mode === 'multi' && <aside className="room-badge"><small>방 코드</small><strong>{room.code}</strong></aside>}</div>}
     {room?.phase === 'finished' ? <ResultScreen room={room} home={home} /> : playing && <GameBoard room={room} home={home} send={send} busy={busy} disabled={disabled} />}
     {message && <div className="toast" role="alert">{message}<button aria-label="알림 닫기" onClick={() => setMessage('')}>×</button></div>}
-    {(tutorialRequired || help) && <Tutorial key={tutorialRequired ? room.code : 'manual'} busy={busy} onExit={() => tutorialRequired ? home() : setHelp(false)} onFinish={async () => { if (tutorialRequired) await send('tutorialComplete', {}); else setHelp(false); }} />}
+    {(tutorialRequired || help) && <Tutorial key={tutorialRequired ? room.code : 'manual'} mode={room?.mode || 'multi'} difficulty={room?.difficulty} busy={busy} onExit={() => tutorialRequired ? home() : setHelp(false)} onFinish={async () => { if (tutorialRequired) await send('tutorialComplete', {}); else setHelp(false); }} />}
   </div>;
 }

@@ -53,7 +53,7 @@ test('방화벽은 방어 실패를 자동 만회하고 없을 때만 힌트가 
   assert.equal(room.result.saved, true);
   assert.equal(a.hintCount, 0);
 });
-test('스푸핑 방어 성공 시 IP 기준 잠금, VPN이 필요할 때 자동 사용된다', () => {
+test('VPN은 획득/방어 성공 시 보관하고 수동 사용 시에만 IP 변경과 1개 소모', () => {
   const { room, a, b } = setup();
   const ip = b.ip;
   attack(room, a, 'spoof'); succeed(room, b);
@@ -64,10 +64,31 @@ test('스푸핑 방어 성공 시 IP 기준 잠금, VPN이 필요할 때 자동 
   a.usedAt = {}; b.items.vpn = 1;
   // Successful phishing awards a VPN and triggers automatic IP rotation when locked.
   attack(room, a, 'phishing'); room.pending.reward = 'vpn'; succeed(room, b);
+  assert.equal(b.ip, ip);
+  assert.equal(b.items.vpn, 2);
+  assert.equal(act(room, b, { type: 'vpn' }, 1300).ok, true);
   assert.notEqual(b.ip, ip);
   assert.equal(b.items.vpn, 1);
   a.usedAt = {};
   assert.equal(availableAttacks(room, a).includes('spoof'), true);
+});
+
+test('스푸핑 잠금 상태에서 상자를 열어도 기존 VPN을 자동 소모하지 않는다', () => {
+  const { room, a, b } = setup();
+  a.items.vpn = 1; b.spoofBlockedIp = a.ip;
+  const ip = a.ip;
+  attack(room, a, 'box');
+  assert.equal(a.ip, ip);
+  assert.ok(a.items.vpn >= 1);
+});
+
+test('VPN이 없거나 게임이 종료됐으면 수동 사용 불가', () => {
+  const { room, a } = setup(); const ip = a.ip;
+  assert.ok(act(room, a, { type: 'vpn' }).error);
+  assert.equal(a.ip, ip);
+  a.items.vpn = 1; attack(room, a, 'brute', { guess: '3456' });
+  assert.ok(act(room, a, { type: 'vpn' }).error);
+  assert.equal(a.items.vpn, 1);
 });
 test('피싱 성공은 팝업에 표시된 아이템 하나만 지급하고 자동 사용 전까지 보관', () => {
   const { room, a, b } = setup();
@@ -226,6 +247,51 @@ test('상자와 피싱의 100개 확률 구간이 정확히 일치한다', () =>
     for (let i = 0; i < 100; i++) { const item = rollItem(source, i); counts[item] = (counts[item] || 0) + 1; }
     assert.deepEqual(counts, expected);
   }
+});
+
+test('싱글 상자/피싱 모두 꽝 80%, 방화벽 20%이고 VPN/DDoS가 나오지 않음', () => {
+  for (const source of ['box', 'phishing']) {
+    const counts = {};
+    for (let i = 0; i < 100; i++) { const item = rollItem(source, i, 'single'); counts[item] = (counts[item] || 0) + 1; }
+    assert.deepEqual(counts, { none: 80, firewall: 20 });
+  }
+  const { room, a } = setup('single');
+  a.items.vpn = a.items.ddos = 1;
+  assert.ok(act(room, a, { type: 'vpn' }).error);
+  assert.ok(act(room, a, { type: 'ddos' }).error);
+  assert.equal(a.items.vpn, 1); assert.equal(a.items.ddos, 1);
+});
+
+test('싱글 방어 실패는 방화벽 먼저 소모, 없으면 1자리씩 노출 후 4자리에서 패배', () => {
+  const { room, a, b } = setup('single');
+  a.items.firewall = 2;
+  for (let i = 0; i < 6; i++) {
+    assert.equal(attack(room, a, 'skip', {}, room.attackDeadline - 1).ok, true);
+    tick(room, room.nextAt);
+    const now = room.pending.deadline;
+    act(room, a, { type: 'defend', id: room.pending.id, value: 'invalid' }, now);
+    assert.equal(a.items.firewall, Math.max(0, 1 - i));
+    assert.equal(view(room, a, now).me.exposure, Math.max(0, i - 1));
+    assert.equal(view(room, b, now).me.hint, a.secret.slice(0, Math.max(0, i - 1)));
+    if (i < 5) { assert.equal(room.phase, 'playing'); transition(room); }
+  }
+  assert.equal(room.phase, 'finished');
+  assert.equal(view(room, a).winner, 'opponent');
+  assert.equal(view(room, a).me.exposure, 4);
+  const elapsed = view(room, a, room.endedAt).elapsed;
+  tick(room, room.endedAt + 50000);
+  assert.equal(view(room, a, room.endedAt + 50000).elapsed, elapsed);
+});
+
+test('싱글 피싱의 꽝 보상은 아이템을 늘리지 않으며 성공이면 내 비밀번호는 안전', () => {
+  const { room, a, b } = setup('single');
+  attack(room, a, 'skip');
+  attack(room, b, 'phishing', {}, room.nextAt);
+  room.pending.reward = 'none';
+  succeed(room, a, room.pending.deadline - 1);
+  assert.deepEqual(a.items, { vpn: 0, firewall: 0, ddos: 0 });
+  assert.equal(room.result.reward, 'none');
+  assert.equal(view(room, a).me.exposure, 0);
 });
 test('상자는 공격 차례를 소비하고 결과 대기 중 중복 획득을 막는다', () => {
   const { room, a, b } = setup();
