@@ -223,6 +223,36 @@ test('멀티 스푸핑 방어는 정답 IP와 상대 IP 필드 모두 숨긴다'
   assert.ok(data.mini.options.includes(a.ip));
   assert.equal(data.mini.options.every((ip) => /^\d{3}$/.test(ip)), true);
 });
+
+test('일반 싱글과 챌린지 모두 스푸핑 방어 중 IP를 숨기고 평상시에는 표시', () => {
+  for (const difficulty of ['easy', 'normal', 'hard', 'challenge']) {
+    const { room, a, b } = setup('single', difficulty);
+    room.stage = 'attack'; room.turn = 1; room.attackDeadline = 11000;
+    assert.equal(view(room, a).peerIp, b.ip);
+    assert.equal(attack(room, b, 'spoof').ok, true);
+    const state = view(room, a);
+    assert.equal(state.peerIp, null);
+    assert.equal('referenceIp' in state.mini, false);
+    assert.equal('answer' in state.mini, false);
+    assert.ok(state.mini.options.includes(b.ip));
+    succeed(room, a);
+    assert.equal(view(room, a).peerIp, b.ip);
+  }
+});
+
+test('챌린지 피싱은 100% 꽝이고 성공 시 방화벽 대신 클리어 수만 증가', () => {
+  for (let roll = 0; roll < 100; roll++) assert.equal(rollItem('phishing', roll, 'single', 'challenge'), 'none');
+  const { room, a, b } = setup('single', 'challenge');
+  room.stage = 'attack'; room.turn = 1; room.attackDeadline = 11000;
+  attack(room, b, 'phishing');
+  assert.equal(room.pending.reward, 'none');
+  assert.equal(view(room, a).mini.reference.item, '꽝');
+  succeed(room, a);
+  assert.deepEqual(a.items, { vpn: 0, firewall: 0, ddos: 0 });
+  assert.equal(a.clears, 1);
+  assert.equal(a.lives, 3);
+  assert.equal(room.result.reward, 'none');
+});
 test('멀티 10초 초과는 사용 가능한 공격 무작위 선택, 늦은 제출도 무시', () => {
   for (const method of ['tick', 'late']) {
     const { room, a } = setup();

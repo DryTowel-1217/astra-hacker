@@ -4,7 +4,8 @@ import { ATTACKS, DIFFICULTIES, validPassword, interceptOptions, ARROWS, ITEM_NA
 export const pick = (list) => list[randomInt(list.length)];
 export const newPassword = () => String(randomInt(10000)).padStart(4, '0');
 export const newIp = () => String(randomInt(100, 1000));
-export function rollItem(source, roll = randomInt(100), mode = 'multi') {
+export function rollItem(source, roll = randomInt(100), mode = 'multi', difficulty) {
+  if (mode === 'single' && difficulty === 'challenge') return 'none';
   for (const [item, odds] of mode === 'single' ? SINGLE_ITEM_ODDS : ITEM_ODDS[source]) { if (roll < odds) return item; roll -= odds; }
   throw new Error('Invalid reward roll');
 }
@@ -104,12 +105,12 @@ function makePending(room, attack, route, now) {
     const realIp = room.players[room.turn].ip;
     const options = new Set([realIp]);
     while (options.size < 3 + level) options.add(newIp());
-    pending.options = shuffle([...options]); pending.answer = realIp; pending.referenceIp = realIp;
+    pending.options = shuffle([...options]); pending.answer = realIp;
   }
   if (attack === 'ransom') { pending.sequence = Array.from({ length: 3 + level }, (_, i) => String.fromCharCode(65 + i)); pending.options = shuffle(pending.sequence); }
   if (attack === 'intercept') { pending.options = Array.from({ length: interceptOptions(level) }, (_, i) => i); pending.answer = route; }
   if (attack === 'phishing') {
-    pending.reward = rollItem('phishing', randomInt(100), room.mode);
+    pending.reward = rollItem('phishing', randomInt(100), room.mode, room.difficulty);
     pending.reference = { title: '아이템 획득', item: ITEM_NAMES[pending.reward], stars: pick([2, 3, 4]), seal: '✦' };
     pending.answer = randomInt(2 + level);
     pending.options = Array.from({ length: 2 + level }, (_, i) => i === pending.answer ? { ...pending.reference } : ({ ...pending.reference, ...pick([{ title: '아이템 획득!' }, { item: `${pending.reference.item} +` }, { stars: pending.reference.stars + 1 }, { seal: '✧' }]) }));
@@ -159,7 +160,7 @@ export function act(room, player, input, now = Date.now()) {
   if (type !== 'attack' || room.stage !== 'attack' || mine !== room.turn) return { error: '지금은 내 공격 시간이 아닙니다.' };
   if (now >= room.attackDeadline) { autoAttack(room, now); return { ok: true }; }
   if (data.attack === 'box') {
-    const item = rollItem('box', randomInt(100), room.mode);
+    const item = rollItem('box', randomInt(100), room.mode, room.difficulty);
     player.attackCount++;
     grantItem(room, player, item, '별빛 보급 상자');
     room.result = { kind: 'box', actor: player.id, item, title: item === 'none' ? '아쉽지만 꽝!' : `${ITEM_NAMES[item]} 1개 획득` };
@@ -238,7 +239,6 @@ export function view(room, player, now = Date.now()) {
         ...(pending.options ? { options: pending.options } : {}),
         ...(pending.sequence ? { sequence: pending.sequence } : {}),
         ...(pending.reference ? { reference: pending.reference } : {}),
-        ...(pending.referenceIp && room.mode === 'single' ? { referenceIp: pending.referenceIp } : {}),
       };
     }
   }
@@ -248,7 +248,7 @@ export function view(room, player, now = Date.now()) {
     winner: room.winner ? (room.winner === player.id ? 'me' : 'opponent') : null,
     players: room.players.map((p) => ({ name: p.name, me: p.id === player.id, ready: p.ready, tutorialDone: p.tutorialDone })),
     me: { secret: player.secret, ip: player.ip, tutorialDone: player.tutorialDone, exposure: peer?.hintCount || 0, items: player.items, hint: peer?.secret?.slice(0, player.hintCount) || '', defenses: player.defenses, clears: player.clears, lives: player.lives, boost: player.incomingBoost },
-    peerIp: room.mode === 'multi' && room.stage === 'defense' && index !== room.turn && pending?.attack === 'spoof' ? null : peer?.ip,
+    peerIp: room.stage === 'defense' && index !== room.turn && pending?.attack === 'spoof' ? null : peer?.ip,
     cooldowns: Object.fromEntries(Object.keys(ATTACKS).map((id) => [id, cooldown(player, id)])),
     elapsed: room.startedAt ? Math.max(0, Math.floor(((room.endedAt ?? now) - room.startedAt) / 1000)) : 0,
     available: peer ? availableAttacks(room, player) : [],
