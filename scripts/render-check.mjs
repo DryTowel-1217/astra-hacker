@@ -29,5 +29,15 @@ try {
   assert.equal(single.includes('VPN'), false);
   assert.equal(single.includes('DDoS'), false);
   assert.ok(single.includes('4자리 모두 노출되면 패배'));
+  room.difficulty = 'challenge'; room.stage = 'preparing'; room.turn = 1;
+  const challenge = renderToStaticMarkup(React.createElement(GameBoard, { room: view(room, a, 1400), send: () => {}, home: () => {} }));
+  assert.equal(challenge.includes('INVENTORY'), false);
+  assert.equal(challenge.includes('내 아이템'), false);
+  assert.ok(challenge.includes('게임 진행 시간'));
+  room.mode = 'multi'; room.difficulty = 'normal'; room.stage = 'attack'; room.turn = 0;
+  a.usedAt.box = 0; a.attackCount = 1;
+  const lockedBox = renderToStaticMarkup(React.createElement(GameBoard, { room: view(room, a, 1500), send: () => {}, home: () => {} }));
+  assert.match(lockedBox, /class="[^"]*supply-card[^"]*" disabled=""/);
+  assert.ok(lockedBox.includes('내 공격 2회 후 사용'));
   console.log('PASS: 공격 화면, 노출도, 타이머, 상자, 튜토리얼, 스푸핑 IP 숨김, 승리/패배 화면 렌더링');
 } finally { await vite.close(); }

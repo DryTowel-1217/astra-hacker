@@ -160,7 +160,9 @@ export function act(room, player, input, now = Date.now()) {
   if (type !== 'attack' || room.stage !== 'attack' || mine !== room.turn) return { error: '지금은 내 공격 시간이 아닙니다.' };
   if (now >= room.attackDeadline) { autoAttack(room, now); return { ok: true }; }
   if (data.attack === 'box') {
+    if (room.mode === 'multi' && cooldown(player, 'box') > 0) return { error: '보급 상자는 다음 내 공격 차례 2회 동안 사용할 수 없습니다.' };
     const item = rollItem('box', randomInt(100), room.mode, room.difficulty);
+    if (room.mode === 'multi') player.usedAt.box = player.attackCount;
     player.attackCount++;
     grantItem(room, player, item, '별빛 보급 상자');
     room.result = { kind: 'box', actor: player.id, item, title: item === 'none' ? '아쉽지만 꽝!' : `${ITEM_NAMES[item]} 1개 획득` };
@@ -249,7 +251,7 @@ export function view(room, player, now = Date.now()) {
     players: room.players.map((p) => ({ name: p.name, me: p.id === player.id, ready: p.ready, tutorialDone: p.tutorialDone })),
     me: { secret: player.secret, ip: player.ip, tutorialDone: player.tutorialDone, exposure: peer?.hintCount || 0, items: player.items, hint: peer?.secret?.slice(0, player.hintCount) || '', defenses: player.defenses, clears: player.clears, lives: player.lives, boost: player.incomingBoost },
     peerIp: room.stage === 'defense' && index !== room.turn && pending?.attack === 'spoof' ? null : peer?.ip,
-    cooldowns: Object.fromEntries(Object.keys(ATTACKS).map((id) => [id, cooldown(player, id)])),
+    cooldowns: { ...Object.fromEntries(Object.keys(ATTACKS).map((id) => [id, cooldown(player, id)])), box: room.mode === 'multi' ? cooldown(player, 'box') : 0 },
     elapsed: room.startedAt ? Math.max(0, Math.floor(((room.endedAt ?? now) - room.startedAt) / 1000)) : 0,
     available: peer ? availableAttacks(room, player) : [],
     routeCount: peer ? interceptOptions(Math.min(8, (room.round ? levelOf(room) : 0) + peer.incomingBoost)) : 4,

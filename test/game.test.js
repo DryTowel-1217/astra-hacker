@@ -334,6 +334,40 @@ test('상자는 공격 차례를 소비하고 결과 대기 중 중복 획득을
   transition(room);
   assert.equal(room.turn, 1);
 });
+
+test('멀티 상자는 다음 내 공격 2회 동안 잠기고 상대의 행동으로는 대기가 줄지 않음', () => {
+  const { room, a, b } = setup();
+  attack(room, a, 'box');
+  assert.equal(view(room, a).cooldowns.box, 2);
+  transition(room);
+  attack(room, b, 'brute', { guess: '9999' });
+  assert.equal(view(room, a).cooldowns.box, 2);
+  for (let remaining = 2; remaining > 0; remaining--) {
+    const before = { ...a.items }, count = a.attackCount;
+    assert.ok(attack(room, a, 'box').error);
+    assert.deepEqual(a.items, before);
+    assert.equal(a.attackCount, count);
+    assert.equal(room.turn, 0);
+    assert.equal(attack(room, a, 'brute', { guess: '9999' }).ok, true);
+    attack(room, b, 'brute', { guess: '9999' });
+    assert.equal(view(room, a).cooldowns.box, remaining - 1);
+  }
+  assert.equal(attack(room, a, 'box').ok, true);
+  assert.equal(view(room, a).cooldowns.box, 2);
+});
+
+test('일반 싱글 상자는 두 공격 차례 연속 열 수 있고 재사용 대기가 없음', () => {
+  const { room, a } = setup('single');
+  assert.equal(attack(room, a, 'box').ok, true);
+  assert.equal(view(room, a).cooldowns.box, 0);
+  transition(room);
+  tick(room, room.nextAt);
+  succeed(room, a, room.pending.deadline - 1);
+  transition(room);
+  assert.equal(room.turn, 0);
+  assert.equal(attack(room, a, 'box', {}, room.attackDeadline - 1).ok, true);
+  assert.equal(view(room, a).cooldowns.box, 0);
+});
 test('노출도는 상대 힌트 획득량이며 플레이 시간은 종료 시 멈춘다', () => {
   const { room, a, b } = setup();
   attack(room, a, 'ransom'); defend(room, b, 'Z');
