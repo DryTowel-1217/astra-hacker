@@ -6,7 +6,7 @@ export function Popup({ value, original = false, onClick, disabled, index }) {
   return onClick ? <button className="item-popup" disabled={disabled} onClick={onClick}>{content}</button> : <div className="item-popup original">{content}</div>;
 }
 
-export default function MiniGame({ mini, send, busy }) {
+export default function MiniGame({ mini, send, busy, levelLabel }) {
   const [localProgress, setLocalProgress] = useState(mini.progress);
   const progressRef = useRef(mini.progress), active = useRef(true), submitRef = useRef(null);
   const progress = Math.max(localProgress, mini.progress);
@@ -38,7 +38,7 @@ export default function MiniGame({ mini, send, busy }) {
     return () => window.removeEventListener('keydown', keydown);
   }, [mini.id, mini.attack]);
   return <section className="mini-game" aria-label={`${ATTACKS[mini.attack].name} 방어 미니게임`}>
-    <div className="mini-heading"><div><span className="eyebrow">DEFENSE / LV.{mini.level + 1}</span><h2>{ATTACKS[mini.attack].name}</h2></div>{mini.seconds !== null && <strong className={`countdown ${mini.seconds < 2 ? 'urgent' : ''}`}>{mini.seconds.toFixed(1)}<small>초</small></strong>}</div>{mini.seconds !== null && <div className="time-track"><div style={{ width: `${Math.max(0, mini.seconds / mini.duration * 100)}%` }} /></div>}
+    <div className="mini-heading"><div><span className="eyebrow">DEFENSE / {levelLabel || `Lv. ${mini.level + 1}`}</span><h2>{ATTACKS[mini.attack].name}</h2></div>{mini.seconds !== null && <strong className={`countdown ${mini.seconds < 2 ? 'urgent' : ''}`}>{mini.seconds.toFixed(1)}<small>초</small></strong>}</div>{mini.seconds !== null && <div className="time-track"><div style={{ width: `${Math.max(0, mini.seconds / mini.duration * 100)}%` }} /></div>}
     <p className="mini-instruction">{ATTACKS[mini.attack].description}</p>
     {mini.attack === 'spoof' && <>{mini.referenceIp ? <p className="reference-ip">상대의 진짜 IP <strong>{mini.referenceIp}</strong></p> : <p className="mini-help">대결 화면에서 기억한 상대 IP를 선택하세요. 방어 중에는 IP가 가려집니다.</p>}<div className="mini-options">{mini.options.map((ip) => <button key={ip} disabled={busy} onClick={() => submit(ip)} className="ip-option">{ip}</button>)}</div></>}
     {mini.attack === 'ransom' && <><p className="mini-help">다음 파일: <strong>{mini.sequence[progress] || '완료'}</strong> · {progress} / {mini.sequence.length}</p><div className="letter-board">{mini.options.map((letter) => { const done = mini.sequence.indexOf(letter) < progress; return <button key={letter} className={`file-button ${done ? 'completed' : ''}`} disabled={done} onClick={() => submit(letter)}><span aria-hidden="true">▤</span>{letter}<small>{done ? '복구 완료' : '파일'}</small></button>; })}</div></>}

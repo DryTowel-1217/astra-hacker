@@ -42,6 +42,8 @@ function defenseSeconds(room, attack) {
   return ATTACKS[attack].seconds;
 }
 function hasNoTimer(room) { return room.mode === 'single' && room.difficulty === 'tutorial'; }
+const baseLevel = (room) => Math.min(8, levelOf(room));
+const defenseLevel = (room, player) => baseLevel(room) + player.incomingBoost;
 function useVpn(room, player) {
   const peer = room.players.find((p) => p !== player);
   player.items.vpn--;
@@ -65,6 +67,7 @@ export function startGame(room, now = Date.now()) {
   for (const player of room.players) log(player, `${room.players[room.turn].name} 선공 · Astra Hacker 시작`);
 }
 function next(room, now) {
+  if (room.mode === 'multi') room.players[1 - room.turn].incomingBoost = 0;
   room.pending = null; room.result = null;
   if (room.mode === 'single' && room.difficulty === 'challenge') {
     room.round++; room.stage = 'preparing'; room.nextAt = now + 1200; return;
@@ -100,6 +103,7 @@ function finishDefense(room, success, now) {
   }
   if (room.mode === 'single' && !challenge && defender.id !== 'bot' && defender.defenses % DIFFICULTIES[room.difficulty].every === 0) hint(room, defender, `방어 ${defender.defenses}회 달성`);
   const title = success ? '방어 성공' : saved ? '방화벽으로 보호됨' : '방어 실패';
+  if (room.mode === 'multi') defender.incomingBoost = 0;
   log(defender, `${ATTACKS[pending.attack].name} · ${title}`);
   log(attacker, `${ATTACKS[pending.attack].name} · 상대 ${title}`);
   room.result = { kind: 'defense', attack: pending.attack, defender: defender.id, success, saved, title, ...(success && pending.attack === 'phishing' ? { reward: pending.reward } : {}) };
@@ -109,11 +113,12 @@ function finishDefense(room, success, now) {
 }
 function makePending(room, attack, route, now) {
   const defender = room.players[1 - room.turn];
-  const level = Math.min(8, levelOf(room) + defender.incomingBoost);
-  defender.incomingBoost = 0;
+  const boost = defender.incomingBoost;
+  const level = defenseLevel(room, defender);
+  if (room.mode !== 'multi') defender.incomingBoost = 0;
   const id = randomBytes(8).toString('hex');
   const seconds = defenseSeconds(room, attack);
-  const pending = { id, attack, level, progress: 0, duration: seconds, deadline: seconds === null ? Infinity : now + seconds * 1000, botAt: now + 1700 };
+  const pending = { id, attack, level, baseLevel: baseLevel(room) + 1, boost, progress: 0, duration: seconds, deadline: seconds === null ? Infinity : now + seconds * 1000, botAt: now + 1700 };
   if (attack === 'spoof') {
     const realIp = room.players[room.turn].ip;
     const options = new Set([realIp]);
@@ -146,10 +151,11 @@ export function act(room, player, input, now = Date.now()) {
     if (room.mode === 'single' && room.difficulty !== 'tutorial') return { error: '싱글 모드에서는 DDoS를 사용하지 않습니다.' };
     if (player.items.ddos < 1) return { error: 'DDoS 아이템이 없습니다.' };
     const target = room.mode === 'single' ? player : room.players[1 - mine];
-    if (target.incomingBoost > 0) return { error: '이미 다음 공격에 DDoS가 적용되어 있습니다.' };
-    player.items.ddos--; target.incomingBoost = 1;
-    log(player, 'DDoS 사용 · 상대의 다음 방어 미니게임 난이도 +1');
-    log(target, 'DDoS 감지 · 다음 방어 미니게임의 난이도가 1 증가합니다.');
+    if (room.mode === 'multi' && (room.turn !== mine || room.stage !== 'attack')) return { error: '내 공격 선택 중에 DDoS를 사용할 수 있습니다.' };
+    if (room.mode !== 'multi' && target.incomingBoost > 0) return { error: '이미 다음 공격에 DDoS가 적용되어 있습니다.' };
+    player.items.ddos--; target.incomingBoost++;
+    log(player, `DDoS 사용 · 방어 난이도 +${target.incomingBoost}`);
+    log(target, `DDoS 감지 · 방어 난이도 +${target.incomingBoost}`);
     return { ok: true };
   }
   if (type === 'defend') {
@@ -196,7 +202,7 @@ export function act(room, player, input, now = Date.now()) {
     else { log(player, data.guess === peer.secret ? '튜토리얼 성공 · 비밀번호를 맞혔습니다.' : '브루스 포스 실패 · 비밀번호가 다릅니다.'); next(room, now); }
     return { ok: true };
   }
-  const effectiveLevel = Math.min(8, levelOf(room) + room.players[1 - mine].incomingBoost);
+  const effectiveLevel = defenseLevel(room, room.players[1 - mine]);
   if (data.attack === 'intercept' && (!Number.isInteger(data.route) || data.route < 0 || data.route >= interceptOptions(effectiveLevel))) return { error: '가로챌 경로를 선택해 주세요.' };
   player.usedAt[data.attack] = player.attackCount; player.attackCount++;
   makePending(room, data.attack, data.route, now);
@@ -214,7 +220,7 @@ function autoAttack(room, now) {
     return act(room, player, { type: 'attack', attack, guess: peer.secret.slice(0, player.hintCount) + newPassword().slice(player.hintCount) }, now);
   }
   const attack = pick(availableAttacks(room, player).filter((id) => id !== 'brute'));
-  return act(room, player, { type: 'attack', attack, route: randomInt(interceptOptions(Math.min(8, levelOf(room) + room.players[1 - room.turn].incomingBoost))) }, now);
+  return act(room, player, { type: 'attack', attack, route: randomInt(interceptOptions(defenseLevel(room, room.players[1 - room.turn]))) }, now);
 }
 export function tick(room, now = Date.now()) {
   if (room.phase !== 'playing') return;
@@ -230,7 +236,7 @@ export function tick(room, now = Date.now()) {
     const bot = room.players[1];
     const attack = pick(availableAttacks(room, bot).filter((id) => id !== 'brute'));
     bot.usedAt[attack] = bot.attackCount; bot.attackCount++;
-    makePending(room, attack, randomInt(interceptOptions(Math.min(8, levelOf(room) + room.players[0].incomingBoost))), now);
+    makePending(room, attack, randomInt(interceptOptions(defenseLevel(room, room.players[0]))), now);
     return;
   }
   if (room.stage === 'attack') {
@@ -239,7 +245,7 @@ export function tick(room, now = Date.now()) {
     if (bot.id === 'bot' && now >= room.nextAt) {
       const available = availableAttacks(room, bot).filter((id) => id !== 'brute');
       const attack = pick(available);
-      act(room, bot, { type: 'attack', attack, route: randomInt(interceptOptions(Math.min(8, levelOf(room) + room.players[0].incomingBoost))) }, now);
+      act(room, bot, { type: 'attack', attack, route: randomInt(interceptOptions(defenseLevel(room, room.players[0]))) }, now);
     }
   }
 }
@@ -248,7 +254,7 @@ export function view(room, player, now = Date.now()) {
   const pending = room.pending;
   let mini = null;
   if (pending && room.stage === 'defense') {
-    mini = { attack: pending.attack, seconds: pending.deadline === Infinity ? null : Math.max(0, (pending.deadline - now) / 1000), duration: pending.duration, level: pending.level };
+    mini = { attack: pending.attack, seconds: pending.deadline === Infinity ? null : Math.max(0, (pending.deadline - now) / 1000), duration: pending.duration, level: pending.level, baseLevel: pending.baseLevel, boost: pending.boost };
     if (index !== room.turn) {
       mini = { ...mini, id: pending.id, progress: pending.progress,
         ...(pending.options ? { options: pending.options } : {}),
@@ -259,7 +265,8 @@ export function view(room, player, now = Date.now()) {
   }
   return {
     code: room.code, mode: room.mode, difficulty: room.difficulty, phase: room.phase, stage: room.stage,
-    host: room.host === player.id, myTurn: index === room.turn, round: room.round || 1, level: room.round ? levelOf(room) + 1 : 1,
+    host: room.host === player.id, myTurn: index === room.turn, round: room.round || 1, level: room.round ? baseLevel(room) + 1 : 1,
+    attackBoost: room.mode === 'multi' && ['attack', 'defense'].includes(room.stage) ? room.players[1 - room.turn].incomingBoost : 0,
     winner: room.winner ? (room.winner === player.id ? 'me' : 'opponent') : null,
     players: room.players.map((p) => ({ name: p.name, me: p.id === player.id, ready: p.ready, tutorialDone: p.tutorialDone })),
     me: { secret: player.secret, ip: player.ip, tutorialDone: player.tutorialDone, exposure: peer?.hintCount || 0, items: player.items, hint: peer?.secret?.slice(0, player.hintCount) || '', defenses: player.defenses, clears: player.clears, lives: player.lives, boost: player.incomingBoost },
@@ -267,7 +274,7 @@ export function view(room, player, now = Date.now()) {
     cooldowns: { ...Object.fromEntries(Object.keys(ATTACKS).map((id) => [id, cooldown(player, id)])), box: room.mode === 'multi' ? cooldown(player, 'box') : 0 },
     elapsed: room.startedAt ? Math.max(0, Math.floor(((room.endedAt ?? now) - room.startedAt) / 1000)) : 0,
     available: peer ? availableAttacks(room, player) : [],
-    routeCount: peer ? interceptOptions(Math.min(8, (room.round ? levelOf(room) : 0) + peer.incomingBoost)) : 4,
+    routeCount: peer ? interceptOptions(room.round ? defenseLevel(room, peer) : 0) : 4,
     mini, logs: player.logs,
     attackSeconds: room.attackDeadline !== null && room.attackDeadline !== undefined ? Math.max(0, (room.attackDeadline - now) / 1000) : null,
     result: room.result ? { ...room.result, defender: room.result.defender === player.id ? 'me' : 'opponent', actor: room.result.actor === player.id ? 'me' : 'opponent' } : null,

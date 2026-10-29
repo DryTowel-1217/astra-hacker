@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { DIFFICULTIES } from '../shared/rules.js';
 import GameBoard, { ResultScreen } from './GameBoard.jsx';
 import Tutorial from './Tutorial.jsx';
+import { createRoomSession } from './room-session.js';
 
 const socket = io();
 const stars = Array.from({ length: 55 }, (_, i) => ({ x: (i * 137.508) % 100, y: (i * 79.31) % 90, size: i % 7 === 0 ? 4 : 2 }));
@@ -13,6 +14,7 @@ function PasswordInput({ value, onChange, label = '게임용 비밀번호', leng
   return <label className="code-field"><span className="sr-only">{label}</span><input aria-label={label} value={value} onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, length))} inputMode="numeric" pattern={`[0-9]{${length}}`} maxLength={length} placeholder={'—'.repeat(length)} autoComplete="off" autoFocus={autoFocus} required /></label>;
 }
 export default function App() {
+  const session = useRef(createRoomSession());
   const [connected, setConnected] = useState(socket.connected), [room, setRoom] = useState(null);
   const [panel, setPanel] = useState(null), [difficulty, setDifficulty] = useState('easy');
   const [secret, setSecret] = useState(''), [code, setCode] = useState('');
@@ -20,22 +22,24 @@ export default function App() {
   const [help, setHelp] = useState(false);
   useEffect(() => {
     const connect = () => setConnected(true);
-    const disconnect = () => { setConnected(false); setRoom(null); setPanel(null); setSecret(''); setMessage('연결이 끊겼습니다. 재연결 후 새 게임을 시작해 주세요.'); };
-    const update = (next) => { setRoom(next); if (next.phase === 'playing' || next.phase === 'finished') setPanel(null); };
-    const closed = (text) => { setRoom(null); setPanel(null); setSecret(''); setMessage(text); };
+    const disconnect = () => { session.current.close(); setConnected(false); setBusy(false); setHelp(false); setRoom(null); setPanel(null); setSecret(''); setMessage('연결이 끊겼습니다. 재연결 후 새 게임을 시작해 주세요.'); };
+    const update = (next) => { if (!session.current.accepts()) return; setRoom(next); if (next.phase === 'playing' || next.phase === 'finished') setPanel(null); };
+    const closed = (text) => { if (!session.current.accepts()) return; session.current.close(); setBusy(false); setHelp(false); setRoom(null); setPanel(null); setSecret(''); setMessage(text); };
     socket.on('connect', connect); socket.on('disconnect', disconnect); socket.on('room', update); socket.on('roomClosed', closed);
     return () => { socket.off('connect', connect); socket.off('disconnect', disconnect); socket.off('room', update); socket.off('roomClosed', closed); };
   }, []);
   function send(event, data) {
+    const token = event === 'createRoom' || event === 'joinRoom' ? session.current.begin() : session.current.current();
     setBusy(true); setMessage('');
     return new Promise((resolve) => socket.timeout(5000).emit(event, data, (err, result) => {
+      if (!session.current.isCurrent(token)) return resolve(false);
       setBusy(false);
       if (err) setMessage('서버 응답을 받지 못했습니다. 연결을 확인해 주세요.');
       else if (result?.error) setMessage(result.error);
       resolve(!err && !result?.error);
     }));
   }
-  function home() { socket.emit('leaveRoom'); setRoom(null); setPanel(null); setSecret(''); setHelp(false); setMessage(''); }
+  function home() { session.current.close(); setBusy(false); socket.emit('leaveRoom'); setRoom(null); setPanel(null); setSecret(''); setHelp(false); setMessage(''); }
   function open(next) { if (next === 'single' && difficulty === 'tutorial') setDifficulty('easy'); setPanel(next); setSecret(''); setCode(''); setMessage(''); }
   async function create(mode) { if (await send('createRoom', { mode, difficulty, secret })) { setSecret(''); setPanel(null); } }
   const playing = room?.phase === 'playing', gameVisible = playing || room?.phase === 'finished';

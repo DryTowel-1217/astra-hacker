@@ -138,14 +138,53 @@ test('양쪽이 공방한 뒤 1턴 증가, 3턴 이후 미니게임 난이도 �
   attack(room, a, 'ransom');
   assert.equal(room.pending.sequence.length, 4);
 });
-test('DDoS는 다음 방어 한 번에만 적용되고 중첩 사용을 막는다', () => {
-  const { room, a, b } = setup(); a.items.ddos = 2;
+test('멀티 DDoS는 내 공격 선택 중 중첩되며 방어 완료 시 성공 여부와 무관하게 해제', () => {
+  for (const success of [true, false]) {
+  const { room, a, b } = setup(); a.items.ddos = 3;
+  room.round = 4; room.halfTurns = 6;
   assert.equal(act(room, a, { type: 'ddos' }, 1050).ok, true);
-  assert.ok(act(room, a, { type: 'ddos' }, 1060).error);
+  assert.equal(act(room, a, { type: 'ddos' }, 1060).ok, true);
+  assert.equal(view(room, a).attackBoost, 2);
+  assert.equal(view(room, b).attackBoost, 2);
   attack(room, a, 'ransom');
-  assert.equal(room.pending.level, 1);
-  assert.equal(room.pending.sequence.length, 4);
+  assert.equal(room.pending.level, 3);
+  assert.equal(room.pending.sequence.length, 6);
+  assert.equal(room.pending.boost, 2);
+  assert.equal(view(room, b).mini.level + 1, view(room, b).level + view(room, b).attackBoost);
+  assert.ok(act(room, a, { type: 'ddos' }, 1150).error);
+  if (success) succeed(room, b); else defend(room, b, 'Z');
   assert.equal(b.incomingBoost, 0);
+  assert.equal(view(room, a).attackBoost, 0);
+  transition(room);
+  assert.equal(room.turn, 1);
+  assert.equal(view(room, b).attackBoost, 0);
+  assert.equal(view(room, b).level, 2);
+  }
+});
+
+test('멀티 DDoS는 상대 턴 사용 불가, 방어 시간 초과와 공격 없이 턴 종료 시에도 해제', () => {
+  const { room, a, b } = setup(); a.items.ddos = 3; b.items.ddos = 1;
+  assert.ok(act(room, b, { type: 'ddos' }, 1050).error);
+  assert.equal(b.items.ddos, 1);
+  act(room, a, { type: 'ddos' }, 1050);
+  attack(room, a, 'replay');
+  tick(room, room.pending.deadline);
+  assert.equal(b.incomingBoost, 0);
+  transition(room);
+  attack(room, b, 'brute', { guess: '9999' }, room.attackDeadline - 1);
+  act(room, a, { type: 'ddos' }, room.attackDeadline - 1);
+  attack(room, a, 'box', {}, room.attackDeadline - 1);
+  transition(room);
+  assert.equal(b.incomingBoost, 0);
+});
+
+test('멀티 DDoS는 기본 난이도 상한과 별개로 사용한 수만큼 추가한다', () => {
+  const { room, a, b } = setup(); room.round = 25; a.items.ddos = 2;
+  act(room, a, { type: 'ddos' }, 1050); act(room, a, { type: 'ddos' }, 1060);
+  attack(room, a, 'ransom');
+  assert.equal(view(room, a).level, 9);
+  assert.equal(view(room, a).attackBoost, 2);
+  assert.equal(room.pending.level + 1, 11);
 });
 test('브루스 포스 정답은 즉시 승리하며 정답과 미니게임 해답이 상대에게 노출되지 않음', () => {
   const { room, a, b } = setup();

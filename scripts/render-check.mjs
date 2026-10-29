@@ -23,6 +23,8 @@ try {
   for (const winner of ['me', 'opponent']) {
     const result = renderToStaticMarkup(React.createElement(ResultScreen, { room: { ...view(room, a, 1300), winner }, home: () => {} }));
     assert.ok(result.includes(winner === 'me' ? 'VICTORY' : 'DEFEAT'));
+    assert.equal(result.includes('DUEL COMPLETE'), false);
+    assert.equal(result.includes('ASTRA HACKER /'), false);
   }
   room.mode = 'single'; room.stage = 'attack'; room.pending = null; room.turn = 0;
   const single = renderToStaticMarkup(React.createElement(GameBoard, { room: view(room, a, 1300), send: () => {}, home: () => {} }));
@@ -34,10 +36,20 @@ try {
   assert.equal(challenge.includes('INVENTORY'), false);
   assert.equal(challenge.includes('내 아이템'), false);
   assert.ok(challenge.includes('게임 진행 시간'));
+  for (const text of ['내 비밀번호', '내 IP', '확보한 상대 비밀번호 힌트', 'password-slots']) assert.equal(challenge.includes(text), false, text);
+  assert.ok(challenge.includes('상대 IP'));
+  room.stage = 'result'; room.result = { kind: 'defense', attack: 'ransom', defender: 'a', success: true, saved: false, title: '방어 성공' };
+  const challengeResult = renderToStaticMarkup(React.createElement(GameBoard, { room: view(room, a, 1400), send: () => {}, home: () => {} }));
+  assert.ok(challengeResult.includes('다음 공격이 옵니다!'));
+  assert.equal(challengeResult.includes('잠시 후 공수가 바뀝니다.'), false);
   room.mode = 'multi'; room.difficulty = 'normal'; room.stage = 'attack'; room.turn = 0;
   a.usedAt.box = 0; a.attackCount = 1;
   const lockedBox = renderToStaticMarkup(React.createElement(GameBoard, { room: view(room, a, 1500), send: () => {}, home: () => {} }));
   assert.match(lockedBox, /class="[^"]*supply-card[^"]*" disabled=""/);
   assert.ok(lockedBox.includes('내 공격 2회 후 사용'));
+  b.incomingBoost = 3;
+  const boosted = renderToStaticMarkup(React.createElement(GameBoard, { room: view(room, a, 1600), send: () => {}, home: () => {} }));
+  assert.match(boosted, /defense-record-heading[\s\S]*Lv\. 1 \+ 3/);
+  assert.doesNotMatch(boosted, /turn-status[\s\S]*?<span>난이도/);
   console.log('PASS: 공격 화면, 노출도, 타이머, 상자, 튜토리얼, 스푸핑 IP 숨김, 승리/패배 화면 렌더링');
 } finally { await vite.close(); }

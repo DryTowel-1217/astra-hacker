@@ -31,5 +31,15 @@ body { font-size:18px; }
   white-space: nowrap;
 }
 .tutorial-play-button:hover:not(:disabled) { background: #253552; }
+.defense-record-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 10px; }
+.defense-record-heading .stat-label { margin: 0; }
+.level-badge { color: #c4cfe5; font: 15px Georgia, serif; white-space: nowrap; }
+.level-badge.boosted { color: #f6cd79; }
+.dashboard.challenge-dashboard { grid-template-columns: 1fr; }
+.challenge-summary { display: flex; align-items: center; gap: 40px; flex-wrap: wrap; }
+.challenge-summary .peer-ip { margin-left: 0; }
+.challenge-dashboard .defense-record { display: block !important; }
+.challenge-dashboard .defense-record > p { margin-top: 12px; }
+@media(max-width:1200px) { .dashboard > .defense-record:last-child { display: block; } }
 @media(max-width:760px) { .tutorial-play-button { width: 110px; } }
 @media(max-width:760px){ .tutorial-action-right { gap: 8px; flex-wrap: wrap; justify-content: flex-end; } }
