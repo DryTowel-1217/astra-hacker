@@ -36,6 +36,6 @@ export default function Tutorial({ onFinish, onExit, busy, mode = 'multi', diffi
       {step === 7 && <div className="tutorial-item-list">{single && difficulty === 'challenge' ? <span>100% 꽝<small>챌린지는 아이템 없이 목숨 3개로 도전</small></span> : <>{!single && <span>◎ VPN <small>사용 버튼으로 내 IP 변경</small></span>}<span>▣ 방화벽 <small>실패 1회 자동 만회</small></span>{!single && <span>ϟ DDoS <small>다음 미니게임 난이도 +1</small></span>}</>}</div>}
       {step === 8 && <div className="tutorial-ready">✦<strong>당신의 별을 지켜내세요.</strong></div>}
     </div><p className="tutorial-feedback" aria-live="polite">{feedback || '예시 화면 · 제한 시간 없음'}</p><p className="tutorial-note">{data.note}</p>
-    <div className="tutorial-actions"><button className="quiet-button" onClick={() => step ? move(step - 1) : onExit()}>{step ? '← 이전' : '시작 화면으로'}</button>{step < steps.length - 1 ? <button className="gold-button" onClick={() => move(step + 1)}>다음 →</button> : <button className="gold-button" disabled={busy} onClick={onFinish}>이해했어요 · 준비 완료</button>}</div>
+    <div className="tutorial-actions"><button className="quiet-button" onClick={() => step ? move(step - 1) : onExit()}>{step ? '← 이전' : '시작 화면으로'}</button><div className="tutorial-action-right"><button className="quiet-button" disabled={busy} onClick={onFinish}>튜토리얼 건너뛰기</button>{step < steps.length - 1 ? <button className="gold-button" onClick={() => move(step + 1)}>다음 →</button> : <button className="gold-button" disabled={busy} onClick={onFinish}>이해했어요 · 준비 완료</button>}</div></div>
   </section></div>;
 }

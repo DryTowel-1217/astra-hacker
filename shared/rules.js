@@ -11,6 +11,7 @@ export const DIFFICULTIES = {
   normal: { name: '보통', every: 4, firewalls: 1, description: '방어 4회마다 힌트 · 방화벽 1개' },
   hard: { name: '어려움', every: 6, firewalls: 0, description: '방어 6회마다 힌트 · 방화벽 없음' },
   challenge: { name: '챌린지', every: 0, firewalls: 0, description: '목숨 3개 · 방어 미니게임 클리어 기록' },
+  tutorial: { name: '튜토리얼', every: 0, firewalls: 3, description: '제한 시간 없이 공격·아이템·방어 연습' },
 };
 export const validPassword = (value) => typeof value === 'string' && /^\d{4}$/.test(value);
 export const interceptOptions = (level) => Math.max(2, 4 - level);

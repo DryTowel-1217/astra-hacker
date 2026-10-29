@@ -28,8 +28,20 @@ export const levelOf = (room) => Math.floor((room.round - 1) / 3);
 export const cooldown = (player, id) => id === 'brute' || player.usedAt[id] === undefined ? 0 : Math.max(0, 3 - (player.attackCount - player.usedAt[id]));
 export function availableAttacks(room, player) {
   const peer = room.players.find((p) => p !== player);
-  return Object.keys(ATTACKS).filter((id) => id === 'brute' || (!cooldown(player, id) && !(id === 'spoof' && player.spoofBlockedIp === peer.ip)));
+  return Object.keys(ATTACKS).filter((id) => {
+    if (id === 'brute') return true;
+    if (id === 'spoof' && room.mode === 'single' && player.id === 'bot' && room.round <= 3) return false;
+    if (room.mode === 'single' && room.difficulty === 'tutorial' && player.id !== 'bot') return true;
+    return !cooldown(player, id) && !(id === 'spoof' && player.spoofBlockedIp === peer.ip);
+  });
 }
+function defenseSeconds(room, attack) {
+  if (room.difficulty === 'tutorial') return null;
+  if (room.difficulty === 'easy') return attack === 'ransom' ? 15 : 10;
+  if (room.difficulty === 'normal') return attack === 'ransom' ? 10 : 7;
+  return ATTACKS[attack].seconds;
+}
+function hasNoTimer(room) { return room.mode === 'single' && room.difficulty === 'tutorial'; }
 function useVpn(room, player) {
   const peer = room.players.find((p) => p !== player);
   player.items.vpn--;
@@ -49,7 +61,7 @@ export function startGame(room, now = Date.now()) {
   room.turn = room.mode === 'single' ? 0 : randomInt(2);
   room.stage = room.difficulty === 'challenge' ? 'preparing' : 'attack';
   room.nextAt = now + 1000;
-  room.attackDeadline = room.stage === 'attack' ? now + 10000 : null;
+  room.attackDeadline = room.stage === 'attack' && !hasNoTimer(room) ? now + 10000 : null;
   for (const player of room.players) log(player, `${room.players[room.turn].name} 선공 · Astra Hacker 시작`);
 }
 function next(room, now) {
@@ -62,7 +74,7 @@ function next(room, now) {
   room.round = Math.floor(room.halfTurns / 2) + 1;
   room.turn = 1 - room.turn; room.stage = 'attack';
   room.nextAt = now + 1300;
-  room.attackDeadline = now + 10000;
+  room.attackDeadline = hasNoTimer(room) ? null : now + 10000;
   if (room.round !== previous && levelOf(room) !== Math.floor((previous - 1) / 3)) {
     for (const p of room.players) log(p, `난이도 상승 · Lv.${levelOf(room) + 1}`);
   }
@@ -93,14 +105,15 @@ function finishDefense(room, success, now) {
   room.result = { kind: 'defense', attack: pending.attack, defender: defender.id, success, saved, title, ...(success && pending.attack === 'phishing' ? { reward: pending.reward } : {}) };
   room.stage = 'result'; room.nextAt = now + 1900;
   if (challenge && defender.lives <= 0) endGame(room, null, now);
-  if (room.mode === 'single' && !challenge && defender.id !== 'bot' && attacker.hintCount >= 4) endGame(room, attacker.id, now);
+  if (room.mode === 'single' && !challenge && room.difficulty !== 'tutorial' && defender.id !== 'bot' && attacker.hintCount >= 4) endGame(room, attacker.id, now);
 }
 function makePending(room, attack, route, now) {
   const defender = room.players[1 - room.turn];
   const level = Math.min(8, levelOf(room) + defender.incomingBoost);
   defender.incomingBoost = 0;
   const id = randomBytes(8).toString('hex');
-  const pending = { id, attack, level, progress: 0, deadline: now + ATTACKS[attack].seconds * 1000, botAt: now + 1700 };
+  const seconds = defenseSeconds(room, attack);
+  const pending = { id, attack, level, progress: 0, duration: seconds, deadline: seconds === null ? Infinity : now + seconds * 1000, botAt: now + 1700 };
   if (attack === 'spoof') {
     const realIp = room.players[room.turn].ip;
     const options = new Set([realIp]);
@@ -124,13 +137,13 @@ export function act(room, player, input, now = Date.now()) {
   if (room.phase !== 'playing') return { error: '진행 중인 게임이 아닙니다.' };
   const mine = room.players.indexOf(player);
   if (type === 'vpn') {
-    if (room.mode === 'single') return { error: '싱글 모드에서는 VPN을 사용하지 않습니다.' };
+    if (room.mode === 'single' && room.difficulty !== 'tutorial') return { error: '싱글 모드에서는 VPN을 사용하지 않습니다.' };
     if (player.items.vpn < 1) return { error: 'VPN 아이템이 없습니다.' };
     useVpn(room, player);
     return { ok: true };
   }
   if (type === 'ddos') {
-    if (room.mode === 'single') return { error: '싱글 모드에서는 DDoS를 사용하지 않습니다.' };
+    if (room.mode === 'single' && room.difficulty !== 'tutorial') return { error: '싱글 모드에서는 DDoS를 사용하지 않습니다.' };
     if (player.items.ddos < 1) return { error: 'DDoS 아이템이 없습니다.' };
     const target = room.mode === 'single' ? player : room.players[1 - mine];
     if (target.incomingBoost > 0) return { error: '이미 다음 공격에 DDoS가 적용되어 있습니다.' };
@@ -158,10 +171,10 @@ export function act(room, player, input, now = Date.now()) {
     return { ok: true };
   }
   if (type !== 'attack' || room.stage !== 'attack' || mine !== room.turn) return { error: '지금은 내 공격 시간이 아닙니다.' };
-  if (now >= room.attackDeadline) { autoAttack(room, now); return { ok: true }; }
+  if (room.attackDeadline !== null && now >= room.attackDeadline) { autoAttack(room, now); return { ok: true }; }
   if (data.attack === 'box') {
     if (room.mode === 'multi' && cooldown(player, 'box') > 0) return { error: '보급 상자는 다음 내 공격 차례 2회 동안 사용할 수 없습니다.' };
-    const item = rollItem('box', randomInt(100), room.mode, room.difficulty);
+    const item = room.difficulty === 'tutorial' ? pick(['ddos', 'vpn', 'firewall', 'none']) : rollItem('box', randomInt(100), room.mode, room.difficulty);
     if (room.mode === 'multi') player.usedAt.box = player.attackCount;
     player.attackCount++;
     grantItem(room, player, item, '별빛 보급 상자');
@@ -172,15 +185,15 @@ export function act(room, player, input, now = Date.now()) {
   if (room.mode === 'single' && mine === 0) {
     if (room.difficulty === 'challenge') return { error: '챌린지는 방어만 진행합니다.' };
     if (data.attack === 'skip') { player.attackCount++; log(player, '공격 건너뛰기'); next(room, now); return { ok: true }; }
-    if (data.attack !== 'brute') return { error: '싱글 공격은 비밀번호 입력 또는 건너뛰기만 가능합니다.' };
+    if (room.difficulty !== 'tutorial' && data.attack !== 'brute') return { error: '싱글 공격은 비밀번호 입력 또는 건너뛰기만 가능합니다.' };
   }
   if (!availableAttacks(room, player).includes(data.attack)) return { error: '2턴 재사용 대기 또는 스푸핑 잠금으로 선택할 수 없는 공격입니다.' };
   if (data.attack === 'brute') {
     if (!validPassword(data.guess)) return { error: '숫자 4자리 비밀번호를 입력해 주세요.' };
     const peer = room.players[1 - mine];
     player.attackCount++;
-    if (data.guess === peer.secret) { endGame(room, player.id, now); log(player, '브루스 포스 성공 · 상대 비밀번호 해제'); }
-    else { log(player, '브루스 포스 실패 · 비밀번호가 다릅니다.'); next(room, now); }
+    if (data.guess === peer.secret && room.difficulty !== 'tutorial') { endGame(room, player.id, now); log(player, '브루스 포스 성공 · 상대 비밀번호 해제'); }
+    else { log(player, data.guess === peer.secret ? '튜토리얼 성공 · 비밀번호를 맞혔습니다.' : '브루스 포스 실패 · 비밀번호가 다릅니다.'); next(room, now); }
     return { ok: true };
   }
   const effectiveLevel = Math.min(8, levelOf(room) + room.players[1 - mine].incomingBoost);
@@ -207,7 +220,7 @@ export function tick(room, now = Date.now()) {
   if (room.phase !== 'playing') return;
   if (room.stage === 'result' && now >= room.nextAt) { next(room, now); return; }
   if (room.stage === 'defense') {
-    if (now >= room.pending.deadline) { finishDefense(room, false, now); return; }
+    if (room.pending.deadline !== Infinity && now >= room.pending.deadline) { finishDefense(room, false, now); return; }
     const defender = room.players[1 - room.turn];
     if (defender.id === 'bot' && now >= room.pending.botAt) finishDefense(room, randomInt(100) < 55, now);
     return;
@@ -221,7 +234,7 @@ export function tick(room, now = Date.now()) {
     return;
   }
   if (room.stage === 'attack') {
-    if (now >= room.attackDeadline) { autoAttack(room, now); return; }
+    if (room.attackDeadline !== null && now >= room.attackDeadline) { autoAttack(room, now); return; }
     const bot = room.players[room.turn];
     if (bot.id === 'bot' && now >= room.nextAt) {
       const available = availableAttacks(room, bot).filter((id) => id !== 'brute');
@@ -235,7 +248,7 @@ export function view(room, player, now = Date.now()) {
   const pending = room.pending;
   let mini = null;
   if (pending && room.stage === 'defense') {
-    mini = { attack: pending.attack, seconds: Math.max(0, (pending.deadline - now) / 1000), level: pending.level };
+    mini = { attack: pending.attack, seconds: pending.deadline === Infinity ? null : Math.max(0, (pending.deadline - now) / 1000), duration: pending.duration, level: pending.level };
     if (index !== room.turn) {
       mini = { ...mini, id: pending.id, progress: pending.progress,
         ...(pending.options ? { options: pending.options } : {}),
@@ -256,7 +269,7 @@ export function view(room, player, now = Date.now()) {
     available: peer ? availableAttacks(room, player) : [],
     routeCount: peer ? interceptOptions(Math.min(8, (room.round ? levelOf(room) : 0) + peer.incomingBoost)) : 4,
     mini, logs: player.logs,
-    attackSeconds: room.attackDeadline ? Math.max(0, (room.attackDeadline - now) / 1000) : null,
+    attackSeconds: room.attackDeadline !== null && room.attackDeadline !== undefined ? Math.max(0, (room.attackDeadline - now) / 1000) : null,
     result: room.result ? { ...room.result, defender: room.result.defender === player.id ? 'me' : 'opponent', actor: room.result.actor === player.id ? 'me' : 'opponent' } : null,
   };
 }

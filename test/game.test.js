@@ -123,7 +123,7 @@ test('서버 제한 시간으로 방어 실패 판정, 클라이언트 성공 �
   const { room, a, b } = setup();
   attack(room, a, 'spoof');
   assert.ok(act(room, a, { type: 'defend', id: room.pending.id, value: b.ip }, 1200).error);
-  expire(room, 7000);
+  expire(room, 12000);
   assert.equal(a.hintCount, 1);
   assert.equal(b.defenses, 1);
 });
@@ -227,6 +227,7 @@ test('멀티 스푸핑 방어는 정답 IP와 상대 IP 필드 모두 숨긴다'
 test('일반 싱글과 챌린지 모두 스푸핑 방어 중 IP를 숨기고 평상시에는 표시', () => {
   for (const difficulty of ['easy', 'normal', 'hard', 'challenge']) {
     const { room, a, b } = setup('single', difficulty);
+    room.round = 4; // AI 스푸핑은 3턴이 지난 뒤부터 허용
     room.stage = 'attack'; room.turn = 1; room.attackDeadline = 11000;
     assert.equal(view(room, a).peerIp, b.ip);
     assert.equal(attack(room, b, 'spoof').ok, true);
@@ -388,4 +389,27 @@ test('새 기본 파일/화살표 개수와 빠른 연속 입력도 서버에서
   assert.equal(room.pending.sequence.length, 5);
   for (const key of room.pending.sequence) defend(room, a, key, 1300);
   assert.equal(room.result.success, true);
+});
+
+
+test('쉬움/보통 난이도의 방어 제한 시간이 공격 종류에 맞게 적용된다', () => {
+  for (const [difficulty, attackName, seconds] of [
+    ['easy', 'ransom', 15], ['easy', 'spoof', 10],
+    ['normal', 'ransom', 10], ['normal', 'spoof', 7],
+  ]) {
+    const { room, a } = setup('multi', difficulty);
+    attack(room, a, attackName);
+    assert.equal(room.pending.duration, seconds);
+    assert.equal(room.pending.deadline, 1100 + seconds * 1000);
+  }
+});
+
+test('튜토리얼 난이도는 공격 선택과 방어 제한 시간이 없다', () => {
+  const { room, a, b } = setup('single', 'tutorial');
+  assert.equal(view(room, a).attackSeconds, null);
+  assert.equal(availableAttacks(room, a).length, 6);
+  assert.equal(attack(room, a, 'spoof').ok, true);
+  assert.equal(room.pending.duration, null);
+  assert.equal(room.pending.deadline, Infinity);
+  assert.equal(view(room, b).mini.seconds, null);
 });
