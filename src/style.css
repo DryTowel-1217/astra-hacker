@@ -19,4 +19,17 @@
 /* 글자 크기만 키우고 글꼴, 색상, 배치 규칙은 유지합니다. */
 body { font-size:18px; }
 .tutorial-action-right { display: flex; gap: 12px; align-items: center; }
+.start-buttons .ornate-button { justify-content: center; }
+.tutorial-play-button {
+  width: 140px;
+  padding: 12px 6px;
+  border: 1px solid #bca36b90;
+  background: linear-gradient(110deg, #1b2944, #101a32);
+  color: #edd7a2;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.tutorial-play-button:hover:not(:disabled) { background: #253552; }
+@media(max-width:760px) { .tutorial-play-button { width: 110px; } }
 @media(max-width:760px){ .tutorial-action-right { gap: 8px; flex-wrap: wrap; justify-content: flex-end; } }
