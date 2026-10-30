@@ -6,11 +6,11 @@ import Inventory from './Inventory.jsx';
 export const formatTime = (seconds) => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 
 export function ResultScreen({ room, home }) {
-  const challenge = room.difficulty === 'challenge', win = room.winner === 'me';
-  return <main className={`final-screen ${challenge ? 'challenge-result' : win ? 'victory' : 'defeat'}`} aria-labelledby="result-title">
+  const challenge = room.difficulty === 'challenge', tutorial = room.difficulty === 'tutorial', win = room.winner === 'me';
+  return <main className={`final-screen ${tutorial ? 'tutorial-result' : challenge ? 'challenge-result' : win ? 'victory' : 'defeat'}`} aria-labelledby="result-title">
     <svg className="victory-star" viewBox="0 0 200 240" aria-hidden="true"><path d="M100 8 L124 88 L190 120 L124 148 L100 232 L76 148 L10 120 L76 88 Z" /></svg>
-    <h1 id="result-title">{challenge ? 'CHALLENGE' : win ? 'VICTORY' : 'DEFEAT'}</h1>
-    <h2>{challenge ? `${room.me.clears}개 클리어` : win ? '승리! 당신의 별을 지켜냈습니다.' : '패배. 당신의 별은 해킹당했습니다.'}</h2>
+    <h1 id="result-title">{tutorial ? 'TUTORIAL COMPLETE' : challenge ? 'CHALLENGE' : win ? 'VICTORY' : 'DEFEAT'}</h1>
+    <h2>{tutorial ? '튜토리얼 완료! 이제 실전에 도전해 보세요.' : challenge ? `${room.me.clears}개 클리어` : win ? '승리! 당신의 별을 지켜냈습니다.' : '패배. 당신의 별은 해킹당했습니다.'}</h2>
     {!challenge && !win && room.mode === 'single' && <p>내 비밀번호 4자리가 모두 드러났습니다.</p>}<div className="final-stats"><span>플레이 시간 <strong>{formatTime(room.elapsed)}</strong></span><span>진행 턴 <strong>{room.round}</strong></span><span>방어 성공 <strong>{room.me.clears}회</strong></span></div>
     <button className="gold-button" onClick={home}>시작 화면으로 돌아가기</button>
   </main>;
@@ -31,6 +31,9 @@ export default function GameBoard({ room, send, busy, disabled, home }) {
   const exposure = room.me.exposure;
   const levelLabel = `Lv. ${room.level}${room.mode === 'multi' && room.attackBoost > 0 ? ` + ${room.attackBoost}` : ''}`;
   const attacks = room.mode === 'single' && !tutorialMode ? [['brute', ATTACKS.brute]] : Object.entries(ATTACKS);
+  useEffect(() => {
+    if (tutorialMode && room.tutorial?.ready && myAttack) setSelected('brute');
+  }, [tutorialMode, room.tutorial?.ready, myAttack]);
   return <main className="game-shell">
     <div className="game-topline"><div><p className="eyebrow">{room.mode === 'single' ? `SINGLE / ${DIFFICULTIES[room.difficulty].name}` : `MULTIPLAYER / ${room.code}`}</p><h1>{myDefense ? '내 보안을 지켜라' : myAttack ? '상대 보안에 도전하라' : room.stage === 'result' ? '공방 결과' : '상대의 행동을 기다리는 중'}</h1></div><div className="turn-status"><strong>{room.round}턴</strong><button type="button" className="quiet-button" onClick={home}>나가기</button></div></div>
     <div className={`dashboard ${challenge ? 'challenge-dashboard' : ''}`}>
@@ -44,6 +47,7 @@ export default function GameBoard({ room, send, busy, disabled, home }) {
         <p>3턴마다 난이도 상승 · 아이템 자동 지급 없음</p>
       </section>
     </div>
+    {tutorialMode && room.tutorial && <section className="tutorial-practice-progress" aria-label="튜토리얼 진행 상황"><strong>방어 연습 {room.tutorial.seen.length} / {room.tutorial.total}</strong><div>{['ransom', 'replay', 'intercept', 'phishing', 'spoof'].map((id) => <span key={id} className={room.tutorial.seen.includes(id) ? 'done' : ''}>{room.tutorial.seen.includes(id) ? '✓ ' : ''}{ATTACKS[id].name}</span>)}</div><p>{room.tutorial.ready ? '모든 힌트가 공개됐어요! 내 공격 차례에 4자리 비밀번호를 입력하면 튜토리얼이 완료됩니다.' : '방어는 랜섬웨어 → 재전송 → 가로채기 → 피싱 → 스푸핑 순서로 반복됩니다. 성공·실패와 관계없이 한 번씩 경험하면 모든 힌트가 열려요.'}</p>{!room.tutorial.ready && myAttack && <button className="quiet-button" disabled={disabled} onClick={() => action({ type: 'attack', attack: 'skip' })}>다음 방어 연습 →</button>}</section>}
     <div className="battle-layout"><div className="battle-main">
       {myDefense && room.mini ? <MiniGame key={room.mini.id} mini={room.mini} send={action} busy={busy} levelLabel={room.mode === 'multi' ? levelLabel : undefined} /> : room.stage === 'result' && room.result ? room.result.kind === 'box' ? <section className="battle-panel box-result"><span className="box-emblem">✧</span><p className="eyebrow">STARLIGHT SUPPLY</p><h2>{room.result.actor === 'me' ? room.result.title : '상대가 보급 상자를 열었습니다.'}</h2><p>{room.result.actor === 'me' ? '공격 차례를 사용했습니다. 잠시 후 공수가 교대됩니다.' : '잠시 후 내 공격 차례가 됩니다.'}</p></section> : <section className={`battle-panel defense-result ${room.result.success || room.result.saved ? 'success' : 'failure'}`}><span className="result-icon">{room.result.success || room.result.saved ? '✦' : '!'}</span><p className="eyebrow">{room.result.defender === 'me' ? 'MY DEFENSE' : 'OPPONENT DEFENSE'}</p><h2>{room.result.defender === 'me' ? room.result.title : `상대 ${room.result.title}`}</h2>{room.result.reward && room.result.defender === 'me' && <strong className="reward-pill">{room.result.reward === 'none' ? '보상은 꽝 · 아이템 없음' : `${ITEM_NAMES[room.result.reward]} 1개 획득`}</strong>}<p>{ATTACKS[room.result.attack].name} · {challenge ? '다음 공격이 옵니다!' : '잠시 후 공수가 바뀝니다.'}</p></section> : myAttack ? <section className="battle-panel attack-panel">
         <div className="section-heading"><div><p className="eyebrow">ATTACK</p><h2>{room.mode === 'single' && !tutorialMode ? '비밀번호 입력 또는 보급 선택' : tutorialMode ? '튜토리얼 · 원하는 공격을 선택해 연습하세요' : '보안 공격 선택'}</h2></div>{room.attackSeconds !== null ? <div className={`attack-clock ${room.attackSeconds < 3 ? 'urgent' : ''}`}><strong>{Math.ceil(room.attackSeconds)}<small>초</small></strong><span>시간 초과 시 무작위 선택</span></div> : <div className="attack-clock"><strong>∞</strong><span>제한 시간 없음</span></div>}</div>

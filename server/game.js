@@ -1,5 +1,5 @@
 import { randomInt, randomBytes } from 'node:crypto';
-import { ATTACKS, DIFFICULTIES, validPassword, interceptOptions, ARROWS, ITEM_NAMES, ITEM_ODDS, SINGLE_ITEM_ODDS } from '../shared/rules.js';
+import { ATTACKS, DIFFICULTIES, validPassword, interceptOptions, ARROWS, ITEM_NAMES, ITEM_ODDS, SINGLE_ITEM_ODDS, TUTORIAL_DEFENSES } from '../shared/rules.js';
 
 export const pick = (list) => list[randomInt(list.length)];
 export const newPassword = () => String(randomInt(10000)).padStart(4, '0');
@@ -60,6 +60,7 @@ function endGame(room, winner, now) { room.phase = 'finished'; room.winner = win
 export function startGame(room, now = Date.now()) {
   room.phase = 'playing'; room.round = 1; room.halfTurns = 0; room.pending = null;
   room.startedAt = now; room.endedAt = null;
+  if (hasNoTimer(room)) room.tutorial = { seen: [], index: 0 };
   room.turn = room.mode === 'single' ? 0 : randomInt(2);
   room.stage = room.difficulty === 'challenge' ? 'preparing' : 'attack';
   room.nextAt = now + 1000;
@@ -99,7 +100,14 @@ function finishDefense(room, success, now) {
   const challenge = room.mode === 'single' && room.difficulty === 'challenge';
   if (!success && !saved) {
     if (challenge) defender.lives--;
-    else hint(room, attacker, '상대 방어 실패');
+    else if (!hasNoTimer(room)) hint(room, attacker, '상대 방어 실패');
+  }
+  if (hasNoTimer(room) && defender.id !== 'bot') {
+    if (!room.tutorial.seen.includes(pending.attack)) room.tutorial.seen.push(pending.attack);
+    if (room.tutorial.seen.length === TUTORIAL_DEFENSES.length) {
+      defender.hintCount = 4;
+      log(defender, '방어 5종 체험 완료 · 비밀번호 힌트 전체 공개! 내 공격 차례에 정답을 입력하세요.');
+    }
   }
   if (room.mode === 'single' && !challenge && defender.id !== 'bot' && defender.defenses % DIFFICULTIES[room.difficulty].every === 0) hint(room, defender, `방어 ${defender.defenses}회 달성`);
   const title = success ? '방어 성공' : saved ? '방화벽으로 보호됨' : '방어 실패';
@@ -195,11 +203,12 @@ export function act(room, player, input, now = Date.now()) {
   }
   if (!availableAttacks(room, player).includes(data.attack)) return { error: '2턴 재사용 대기 또는 스푸핑 잠금으로 선택할 수 없는 공격입니다.' };
   if (data.attack === 'brute') {
+    if (hasNoTimer(room) && room.tutorial.seen.length < TUTORIAL_DEFENSES.length) return { error: '먼저 방어 미니게임 5종을 한 번씩 경험해 주세요.' };
     if (!validPassword(data.guess)) return { error: '숫자 4자리 비밀번호를 입력해 주세요.' };
     const peer = room.players[1 - mine];
     player.attackCount++;
-    if (data.guess === peer.secret && room.difficulty !== 'tutorial') { endGame(room, player.id, now); log(player, '브루스 포스 성공 · 상대 비밀번호 해제'); }
-    else { log(player, data.guess === peer.secret ? '튜토리얼 성공 · 비밀번호를 맞혔습니다.' : '브루스 포스 실패 · 비밀번호가 다릅니다.'); next(room, now); }
+    if (data.guess === peer.secret) { endGame(room, player.id, now); log(player, hasNoTimer(room) ? '튜토리얼 완료 · 비밀번호를 맞혔습니다.' : '브루스 포스 성공 · 상대 비밀번호 해제'); }
+    else { log(player, '브루스 포스 실패 · 비밀번호가 다릅니다.'); next(room, now); }
     return { ok: true };
   }
   const effectiveLevel = defenseLevel(room, room.players[1 - mine]);
@@ -244,7 +253,9 @@ export function tick(room, now = Date.now()) {
     const bot = room.players[room.turn];
     if (bot.id === 'bot' && now >= room.nextAt) {
       const available = availableAttacks(room, bot).filter((id) => id !== 'brute');
-      const attack = pick(available);
+      const attack = hasNoTimer(room) ? TUTORIAL_DEFENSES[room.tutorial.index++ % TUTORIAL_DEFENSES.length] : pick(available);
+      // Tutorial follows its own cycle, including spoofing regardless of practice locks.
+      if (hasNoTimer(room)) { bot.usedAt = {}; bot.spoofBlockedIp = null; }
       act(room, bot, { type: 'attack', attack, route: randomInt(interceptOptions(defenseLevel(room, room.players[0]))) }, now);
     }
   }
@@ -268,6 +279,7 @@ export function view(room, player, now = Date.now()) {
     host: room.host === player.id, myTurn: index === room.turn, round: room.round || 1, level: room.round ? baseLevel(room) + 1 : 1,
     attackBoost: room.mode === 'multi' && ['attack', 'defense'].includes(room.stage) ? room.players[1 - room.turn].incomingBoost : 0,
     winner: room.winner ? (room.winner === player.id ? 'me' : 'opponent') : null,
+    ...(hasNoTimer(room) && room.tutorial ? { tutorial: { seen: [...room.tutorial.seen], total: TUTORIAL_DEFENSES.length, ready: room.tutorial.seen.length === TUTORIAL_DEFENSES.length } } : {}),
     players: room.players.map((p) => ({ name: p.name, me: p.id === player.id, ready: p.ready, tutorialDone: p.tutorialDone })),
     me: { secret: player.secret, ip: player.ip, tutorialDone: player.tutorialDone, exposure: peer?.hintCount || 0, items: player.items, hint: peer?.secret?.slice(0, player.hintCount) || '', defenses: player.defenses, clears: player.clears, lives: player.lives, boost: player.incomingBoost },
     peerIp: room.stage === 'defense' && index !== room.turn && pending?.attack === 'spoof' ? null : peer?.ip,

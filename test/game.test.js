@@ -452,3 +452,64 @@ test('튜토리얼 난이도는 공격 선택과 방어 제한 시간이 없다'
   assert.equal(room.pending.deadline, Infinity);
   assert.equal(view(room, b).mini.seconds, null);
 });
+
+test('튜토리얼 방 생성 직후 대기실 상태도 진행 정보 초기화 전 안전하게 전송한다', () => {
+  const a = makePlayer('a', 'Player 1'), b = makePlayer('bot', 'AI');
+  a.secret = '0012'; b.secret = '3456';
+  const state = view({ mode: 'single', difficulty: 'tutorial', phase: 'lobby', players: [a, b] }, a);
+  assert.equal(state.phase, 'lobby');
+  assert.equal(state.tutorial, undefined);
+});
+
+test('튜토리얼 방어 5종은 중복 없이 순환하고 5종 체험 후에만 모든 힌트를 공개한다', () => {
+  const { room, a, b } = setup('single', 'tutorial');
+  assert.ok(attack(room, a, 'brute', { guess: b.secret }).error);
+  assert.equal(room.phase, 'playing');
+  const order = [];
+  for (let i = 0; i < 6; i++) {
+    assert.equal(act(room, a, { type: 'attack', attack: 'skip' }, room.nextAt + 1).ok, true);
+    tick(room, room.nextAt);
+    assert.equal(room.stage, 'defense');
+    order.push(room.pending.attack);
+    succeed(room, a, room.nextAt + 100);
+    assert.equal(view(room, a).me.hint.length, i < 4 ? 0 : 4);
+    assert.equal(view(room, a).tutorial.seen.length, Math.min(i + 1, 5));
+    transition(room);
+  }
+  assert.deepEqual(order, ['ransom', 'replay', 'intercept', 'phishing', 'spoof', 'ransom']);
+  assert.equal(view(room, a).me.hint, b.secret);
+  assert.equal(view(room, a).tutorial.ready, true);
+  assert.equal(act(room, a, { type: 'attack', attack: 'brute', guess: b.secret }, room.nextAt + 1).ok, true);
+  assert.equal(room.phase, 'finished');
+  assert.equal(view(room, a).winner, 'me');
+  const elapsed = view(room, a, room.endedAt).elapsed;
+  tick(room, room.endedAt + 50000);
+  assert.equal(view(room, a, room.endedAt + 50000).elapsed, elapsed);
+});
+
+test('튜토리얼 방어 실패/방화벽 만회도 체험으로 집계하며 4자리 노출로 종료하지 않는다', () => {
+  const { room, a, b } = setup('single', 'tutorial'); a.items.firewall = 3;
+  for (let i = 0; i < 5; i++) {
+    act(room, a, { type: 'attack', attack: 'skip' }, room.nextAt + 1); tick(room, room.nextAt);
+    const p = room.pending;
+    const wrong = p.sequence ? 'wrong' : p.attack === 'spoof' ? p.options.find((ip) => ip !== p.answer) : p.attack === 'intercept' ? p.answer : (p.answer + 1) % p.options.length;
+    assert.equal(defend(room, a, wrong, room.nextAt + 100).ok, true);
+    assert.equal(room.phase, 'playing');
+    transition(room);
+  }
+  assert.equal(a.clears, 0);
+  assert.equal(b.hintCount, 0);
+  assert.equal(view(room, a).me.hint, b.secret);
+  assert.equal(view(room, a).tutorial.ready, true);
+});
+
+test('튜토리얼에서 내 공격으로 봇이 실패한 것은 방어 체험으로 집계하지 않는다', () => {
+  const { room, a, b } = setup('single', 'tutorial');
+  attack(room, a, 'ransom'); defend(room, b, 'Z');
+  assert.equal(view(room, a).tutorial.seen.length, 0);
+  assert.equal(view(room, a).me.hint, '');
+  transition(room); tick(room, room.nextAt); succeed(room, a, room.nextAt + 100); transition(room);
+  assert.equal(view(room, a).tutorial.seen.length, 1);
+  assert.ok(act(room, a, { type: 'attack', attack: 'brute', guess: b.secret }, room.nextAt + 1).error);
+  assert.equal(room.phase, 'playing');
+});

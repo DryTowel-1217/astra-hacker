@@ -51,5 +51,13 @@ try {
   const boosted = renderToStaticMarkup(React.createElement(GameBoard, { room: view(room, a, 1600), send: () => {}, home: () => {} }));
   assert.match(boosted, /defense-record-heading[\s\S]*Lv\. 1 \+ 3/);
   assert.doesNotMatch(boosted, /turn-status[\s\S]*?<span>난이도/);
+  room.mode = 'single'; room.difficulty = 'tutorial';
+  startGame(room, 2000);
+  const practice = renderToStaticMarkup(React.createElement(GameBoard, { room: view(room, a, 2100), send: () => {}, home: () => {} }));
+  assert.ok(practice.includes('튜토리얼 진행 상황'));
+  assert.ok(practice.includes('다음 방어 연습'));
+  const complete = renderToStaticMarkup(React.createElement(ResultScreen, { room: { ...view(room, a, 2200), winner: 'me' }, home: () => {} }));
+  assert.ok(complete.includes('TUTORIAL COMPLETE'));
+  assert.ok(complete.includes('튜토리얼 완료!'));
   console.log('PASS: 공격 화면, 노출도, 타이머, 상자, 튜토리얼, 스푸핑 IP 숨김, 승리/패배 화면 렌더링');
 } finally { await vite.close(); }
